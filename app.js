@@ -850,7 +850,19 @@ function init() {
   renderStreak();
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      reg.update().catch(() => {});
+    }).catch(() => {});
+
+    // Cuando una version nueva del service worker toma el control,
+    // recargamos una vez para que la pagina use los archivos nuevos
+    // sin que el usuario tenga que limpiar la cache a mano.
+    let reloadedForUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloadedForUpdate) return;
+      reloadedForUpdate = true;
+      window.location.reload();
+    });
   }
 }
 

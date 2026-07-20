@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hoy-app-v4';
+const CACHE_NAME = 'hoy-app-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -12,7 +12,13 @@ const ASSETS = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => Promise.all(
+        // { cache: 'reload' } evita que el navegador reuse una copia vieja
+        // de estos archivos desde su cache HTTP normal al instalar la nueva version.
+        ASSETS.map((url) => fetch(url, { cache: 'reload' }).then((res) => cache.put(url, res)))
+      ))
+      .then(() => self.skipWaiting())
   );
 });
 
