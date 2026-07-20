@@ -678,8 +678,19 @@ let recordStartTime = null;
 let recordTimerInterval = null;
 let speechRecognizer = null;
 let transcriptFinal = '';
+let recognitionActive = false; // true mientras QUEREMOS estar transcribiendo (para saber si hay que reintentar)
+let recognitionEverStarted = false; // si onstart nunca llega, el mic no se pudo compartir con la grabacion
 
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+const RECOGNITION_ERROR_LABELS = {
+  'not-allowed': 'permiso de micrófono denegado',
+  'service-not-allowed': 'servicio de voz bloqueado',
+  'audio-capture': 'no se pudo compartir el micrófono con la grabación',
+  'network': 'sin conexión a internet',
+  'no-speech': 'no detectó voz',
+  'aborted': 'interrumpido'
+};
 
 function startTranscription() {
   if (!SpeechRecognitionCtor) {
@@ -687,11 +698,26 @@ function startTranscription() {
     return;
   }
   transcriptFinal = '';
+  recognitionActive = true;
+  recognitionEverStarted = false;
+  launchRecognizer();
+
+  // Si nunca llega onstart, lo mas probable es que el celular no deje usar
+  // el microfono para transcribir mientras ya se esta grabando el audio.
+  setTimeout(() => {
+    if (recognitionActive && !recognitionEverStarted) {
+      toast('No se pudo iniciar la transcripción en este dispositivo');
+    }
+  }, 3000);
+}
+
+function launchRecognizer() {
   try {
     speechRecognizer = new SpeechRecognitionCtor();
     speechRecognizer.lang = 'es-CL';
     speechRecognizer.continuous = true;
     speechRecognizer.interimResults = true;
+    speechRecognizer.onstart = () => { recognitionEverStarted = true; };
     speechRecognizer.onresult = (e) => {
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -702,7 +728,19 @@ function startTranscription() {
       $('#qcTranscriptPreview').classList.remove('hidden');
       $('#qcTranscriptPreview').textContent = '💬 ' + (transcriptFinal + interim).trim();
     };
-    speechRecognizer.onerror = (e) => { console.warn('Transcripción: ' + e.error); };
+    speechRecognizer.onerror = (e) => {
+      console.warn('Transcripción: ' + e.error);
+      if (e.error !== 'no-speech' && e.error !== 'aborted') {
+        toast('Transcripción: ' + (RECOGNITION_ERROR_LABELS[e.error] || e.error));
+      }
+    };
+    speechRecognizer.onend = () => {
+      // En Android el reconocimiento suele cortarse solo tras un silencio
+      // aunque continuous=true. Si seguimos grabando, lo reiniciamos.
+      if (recognitionActive && mediaRecorder && mediaRecorder.state === 'recording') {
+        try { launchRecognizer(); } catch (e) { /* se intenta de nuevo en el proximo onend */ }
+      }
+    };
     speechRecognizer.start();
   } catch (e) { speechRecognizer = null; }
 }
@@ -711,6 +749,7 @@ function startTranscription() {
 // ultimos resultados finales llegan de forma asincrona un instante despues,
 // asi que hay que esperar el evento onend antes de leer transcriptFinal.
 function stopTranscriptionAndWait() {
+  recognitionActive = false;
   return new Promise((resolve) => {
     $('#qcTranscriptPreview').classList.add('hidden');
     $('#qcTranscriptPreview').textContent = '';
