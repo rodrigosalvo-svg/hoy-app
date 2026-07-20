@@ -680,6 +680,7 @@ let speechRecognizer = null;
 let transcriptFinal = '';
 let recognitionActive = false; // true mientras QUEREMOS estar transcribiendo (para saber si hay que reintentar)
 let recognitionEverStarted = false; // si onstart nunca llega, el mic no se pudo compartir con la grabacion
+let recognitionRestartCount = 0; // cuantas veces se reinicio solo sin haber captado nada todavia
 
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -700,6 +701,7 @@ function startTranscription() {
   transcriptFinal = '';
   recognitionActive = true;
   recognitionEverStarted = false;
+  recognitionRestartCount = 0;
   launchRecognizer();
 
   // Si nunca llega onstart, lo mas probable es que el celular no deje usar
@@ -738,6 +740,13 @@ function launchRecognizer() {
       // En Android el reconocimiento suele cortarse solo tras un silencio
       // aunque continuous=true. Si seguimos grabando, lo reiniciamos.
       if (recognitionActive && mediaRecorder && mediaRecorder.state === 'recording') {
+        recognitionRestartCount++;
+        // Si se reinicio varias veces sin captar nada, probablemente el
+        // microfono no le esta llegando de verdad (permiso del sistema,
+        // no solo del sitio) en vez de que simplemente no haya hablado.
+        if (recognitionRestartCount === 3 && !transcriptFinal.trim()) {
+          toast('Sin voz detectada: revisa el permiso de micrófono de "Google" en Ajustes del celular');
+        }
         try { launchRecognizer(); } catch (e) { /* se intenta de nuevo en el proximo onend */ }
       }
     };
@@ -777,11 +786,19 @@ async function toggleRecording() {
     return;
   }
 
+  // Se pide el microfono para transcribir ANTES de abrir el stream de
+  // grabacion: en algunos celulares Android, si ambos piden el microfono
+  // al mismo tiempo, solo uno de los dos logra usarlo.
+  startTranscription();
+  await new Promise((r) => setTimeout(r, 300));
+
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   } catch (e) {
     toast('No se pudo acceder al micrófono');
+    recognitionActive = false;
+    if (speechRecognizer) { try { speechRecognizer.stop(); } catch (e2) { /* ignorar */ } }
     return;
   }
 
@@ -808,7 +825,6 @@ async function toggleRecording() {
   };
 
   mediaRecorder.start();
-  startTranscription();
   recordStartTime = Date.now();
   $('#qcRecordBtn').textContent = '⏹ Detener grabación';
   $('#qcRecordBtn').classList.add('recording');
