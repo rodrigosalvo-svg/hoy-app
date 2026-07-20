@@ -101,6 +101,16 @@ const Crypto = {
 
   lock() { this.sessionKey = null; },
 
+  async encryptBuffer(buffer) {
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.sessionKey, buffer);
+    return { iv, ciphertext };
+  },
+
+  async decryptBuffer(payload) {
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: payload.iv }, this.sessionKey, payload.ciphertext);
+  },
+
   async encryptText(text) {
     if (!this.sessionKey) return text;
     const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -119,6 +129,46 @@ const Crypto = {
       );
       return new TextDecoder().decode(plain);
     } catch (e) { return '⚠️ No se pudo descifrar'; }
+  }
+};
+
+/* ========================= AUDIO (IndexedDB) ========================= */
+const AudioDB = {
+  db: null,
+  open() {
+    if (this.db) return Promise.resolve(this.db);
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('hoy_audio_db', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('audio');
+      req.onsuccess = () => { this.db = req.result; resolve(this.db); };
+      req.onerror = () => reject(req.error);
+    });
+  },
+  async put(id, data) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('audio', 'readwrite');
+      tx.objectStore('audio').put(data, id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+  async get(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const req = db.transaction('audio', 'readonly').objectStore('audio').get(id);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  },
+  async delete(id) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('audio', 'readwrite');
+      tx.objectStore('audio').delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   }
 };
 
@@ -384,7 +434,7 @@ $$('#categoryFilter .chip').forEach(chip => {
 
 $('#notesSearch').addEventListener('input', renderNotesList);
 
-const CAT_ICON = { Claves: '🔑', Direcciones: '📍', Fechas: '📅', General: '📝' };
+const CAT_ICON = { Claves: '🔑', Direcciones: '📍', Fechas: '📅', General: '📝', Audio: '🎙️' };
 
 async function renderNotesList() {
   const search = $('#notesSearch').value.trim().toLowerCase();
@@ -393,6 +443,18 @@ async function renderNotesList() {
 
   const rows = [];
   for (const n of list) {
+    if (n.isAudio) {
+      if (search && !n.title.toLowerCase().includes(search)) continue;
+      rows.push(`
+        <li class="note-card audio-card" data-cat="${n.category}" data-id="${n.id}">
+          <div class="note-title-row">
+            <span class="note-title">🎙️ ${escapeHtml(n.title)}</span>
+            <button class="task-del" data-audio-del="${n.id}">✕</button>
+          </div>
+          <audio controls class="audio-player" data-audio-id="${n.id}"></audio>
+        </li>`);
+      continue;
+    }
     const plainContent = await Crypto.decryptText(n.content);
     const hay = (n.title + ' ' + plainContent).toLowerCase();
     if (search && !hay.includes(search)) continue;
@@ -408,7 +470,43 @@ async function renderNotesList() {
   }
   $('#notesList').innerHTML = rows.join('');
   $('#notesEmpty').classList.toggle('hidden', notes.length !== 0);
-  $$('.note-card').forEach(card => card.addEventListener('click', () => openNoteModal(card.dataset.id)));
+
+  $$('.note-card').forEach(card => {
+    if (card.classList.contains('audio-card')) return;
+    card.addEventListener('click', () => openNoteModal(card.dataset.id));
+  });
+
+  $$('[data-audio-del]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const id = btn.dataset.audioDel;
+      notes = notes.filter(n => n.id !== id);
+      saveNotes();
+      try { await AudioDB.delete(id); } catch (e2) { /* ya no está, no importa */ }
+      renderNotesList();
+      toast('Nota de voz eliminada');
+    });
+  });
+
+  for (const el of $$('.audio-player')) {
+    loadAudioSrc(el, el.dataset.audioId);
+  }
+}
+
+async function loadAudioSrc(el, id) {
+  try {
+    const payload = await AudioDB.get(id);
+    if (!payload) return;
+    let blob;
+    if (payload.encrypted) {
+      if (!Crypto.sessionKey) return;
+      const buffer = await Crypto.decryptBuffer(payload);
+      blob = new Blob([buffer], { type: payload.mime });
+    } else {
+      blob = payload.blob;
+    }
+    el.src = URL.createObjectURL(blob);
+  } catch (e) { /* audio no disponible */ }
 }
 
 /* ---- Modal de nota ---- */
@@ -454,6 +552,34 @@ $('#deleteNoteBtn').addEventListener('click', () => {
   toast('Nota eliminada');
 });
 
+/* ========================= DESBLOQUEO RAPIDO ========================= */
+// Si el PIN esta activado pero aun no se desbloqueo en esta sesion, pide el PIN
+// antes de guardar una nota/audio para no guardarlos sin cifrar por error.
+function requireUnlock() {
+  if (!settings.lockEnabled || Crypto.sessionKey) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    $('#quickUnlockPin').value = '';
+    hide('#quickUnlockError');
+    show('#quickUnlockModal');
+    setTimeout(() => $('#quickUnlockPin').focus(), 50);
+
+    function cleanup() {
+      hide('#quickUnlockModal');
+      $('#quickUnlockBtn').onclick = null;
+      $('#closeQuickUnlock').onclick = null;
+      $('#quickUnlockPin').onkeydown = null;
+    }
+    async function tryIt() {
+      const ok = await Crypto.tryUnlock($('#quickUnlockPin').value.trim());
+      if (ok) { notesUnlockedThisSession = true; cleanup(); resolve(true); }
+      else { show('#quickUnlockError'); }
+    }
+    $('#quickUnlockBtn').onclick = tryIt;
+    $('#quickUnlockPin').onkeydown = (e) => { if (e.key === 'Enter') tryIt(); };
+    $('#closeQuickUnlock').onclick = () => { cleanup(); resolve(false); };
+  });
+}
+
 /* ========================= CAPTURA RÁPIDA ========================= */
 let qcType = 'tarea';
 let qcWhen = 'hoy';
@@ -463,6 +589,8 @@ $$('.qc-type').forEach(btn => {
     qcType = btn.dataset.type;
     $$('.qc-type').forEach(b => b.classList.toggle('qc-type-active', b === btn));
     $('#qcWhenRow').classList.toggle('hidden', qcType !== 'tarea');
+    $('#qcForm').classList.toggle('hidden', qcType === 'audio');
+    $('#qcAudioRow').classList.toggle('hidden', qcType !== 'audio');
     $('#qcInput').placeholder = qcType === 'tarea' ? 'Anota una tarea rápida...' : 'Anota una nota rápida...';
   });
 });
@@ -489,6 +617,8 @@ $('#qcForm').addEventListener('submit', async (e) => {
     renderHoy(); renderTareas();
     toast('Tarea agregada ✅');
   } else {
+    const unlocked = await requireUnlock();
+    if (!unlocked) { toast('Nota no guardada'); return; }
     const content = await Crypto.encryptText(text);
     notes.push({ id: uid(), title: text.slice(0, 40), category: 'General', content, createdAt: Date.now(), updatedAt: Date.now() });
     saveNotes();
@@ -497,6 +627,88 @@ $('#qcForm').addEventListener('submit', async (e) => {
   input.value = '';
   input.focus();
 });
+
+/* ---- Nota de voz ---- */
+let mediaRecorder = null;
+let audioChunks = [];
+let recordStartTime = null;
+let recordTimerInterval = null;
+
+async function toggleRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  const unlocked = await requireUnlock();
+  if (!unlocked) return;
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('Tu navegador no permite grabar audio aquí');
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    toast('No se pudo acceder al micrófono');
+    return;
+  }
+
+  audioChunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+  mediaRecorder.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    clearInterval(recordTimerInterval);
+    $('#qcRecordTimer').classList.add('hidden');
+    $('#qcRecordBtn').textContent = '🎙️ Toca para grabar';
+    $('#qcRecordBtn').classList.remove('recording');
+    const durationMs = Date.now() - recordStartTime;
+    if (durationMs < 500) { toast('Grabación muy corta, intenta de nuevo'); return; }
+    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+    await saveAudioNote(blob);
+  };
+
+  mediaRecorder.start();
+  recordStartTime = Date.now();
+  $('#qcRecordBtn').textContent = '⏹ Detener grabación';
+  $('#qcRecordBtn').classList.add('recording');
+  $('#qcRecordTimer').classList.remove('hidden');
+  recordTimerInterval = setInterval(() => {
+    const secs = Math.floor((Date.now() - recordStartTime) / 1000);
+    $('#qcRecordTimer').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  }, 500);
+}
+
+$('#qcRecordBtn').addEventListener('click', toggleRecording);
+
+async function saveAudioNote(blob) {
+  const id = uid();
+  const now = Date.now();
+  const title = 'Nota de voz · ' + new Date(now).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+  let payload;
+  if (Crypto.sessionKey) {
+    const buffer = await blob.arrayBuffer();
+    const { iv, ciphertext } = await Crypto.encryptBuffer(buffer);
+    payload = { encrypted: true, iv, ciphertext, mime: blob.type };
+  } else {
+    payload = { encrypted: false, blob, mime: blob.type };
+  }
+
+  try {
+    await AudioDB.put(id, payload);
+  } catch (e) {
+    toast('No se pudo guardar el audio (¿poco espacio?)');
+    return;
+  }
+
+  notes.push({ id, title, category: 'Audio', isAudio: true, content: '', createdAt: now, updatedAt: now });
+  saveNotes();
+  toast('Nota de voz guardada 🎙️');
+  if ($('#view-notas').classList.contains('active')) renderNotesList();
+}
 
 /* ========================= INICIO ========================= */
 function renderGreeting() {

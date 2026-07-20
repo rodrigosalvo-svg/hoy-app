@@ -85,6 +85,7 @@
           <button class="chip" data-cat="Direcciones">📍 Direcciones</button>
           <button class="chip" data-cat="Fechas">📅 Fechas</button>
           <button class="chip" data-cat="General">📝 General</button>
+          <button class="chip" data-cat="Audio">🎙️ Audios</button>
         </div>
         <ul class="notes-list" id="notesList"></ul>
         <div id="notesEmpty" class="empty-state hidden">
@@ -113,6 +114,7 @@
     <div class="qc-type-row" id="qcTypeRow">
       <button class="qc-type qc-type-active" data-type="tarea">✅ Tarea</button>
       <button class="qc-type" data-type="nota">🗒️ Nota</button>
+      <button class="qc-type" data-type="audio">🎙️ Audio</button>
     </div>
     <div class="qc-when-row" id="qcWhenRow">
       <button class="chip chip-active" data-when="hoy">Hoy</button>
@@ -123,6 +125,10 @@
       <input type="text" id="qcInput" class="qc-input" placeholder="Anota algo rápido..." autocomplete="off">
       <button type="submit" class="qc-submit" aria-label="Agregar">➤</button>
     </form>
+    <div class="qc-audio-row hidden" id="qcAudioRow">
+      <button type="button" class="qc-record-btn" id="qcRecordBtn">🎙️ Toca para grabar</button>
+      <span class="qc-record-timer hidden" id="qcRecordTimer">0:00</span>
+    </div>
   </div>
 
   <!-- BOTTOM NAV -->
@@ -174,6 +180,20 @@
       <button class="btn btn-ghost" id="taskNoDateBtn">Sin fecha</button>
       <button class="btn btn-primary" id="saveTaskBtn">Guardar</button>
     </div>
+  </div>
+</div>
+
+<!-- DESBLOQUEO RAPIDO (para nota/audio agregado fuera de la pestaña Notas) -->
+<div id="quickUnlockModal" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <span>Desbloquea tus notas</span>
+      <button class="icon-btn" id="closeQuickUnlock">✕</button>
+    </div>
+    <div class="lock-sub">Ingresa tu PIN para guardar esto de forma cifrada.</div>
+    <input type="password" id="quickUnlockPin" inputmode="numeric" maxlength="8" placeholder="PIN" class="pin-input" autocomplete="off">
+    <div id="quickUnlockError" class="error-text hidden">PIN incorrecto</div>
+    <button class="btn btn-primary btn-block" id="quickUnlockBtn">Desbloquear y guardar</button>
   </div>
 </div>
 
