@@ -172,6 +172,46 @@ const AudioDB = {
   }
 };
 
+/* ========================= MODALES (cerrar tocando afuera / boton atras) ========================= */
+let modalOpenCount = 0;
+let suppressHistoryPop = false;
+
+function openModal(sel) {
+  show(sel);
+  history.pushState({ hoyModalOpen: true }, '');
+  modalOpenCount++;
+}
+
+function closeModal(sel) {
+  hide(sel);
+  if (modalOpenCount > 0) {
+    modalOpenCount--;
+    if (!suppressHistoryPop) history.back();
+  }
+}
+
+function show(sel) { $(sel).classList.remove('hidden'); }
+function hide(sel) { $(sel).classList.add('hidden'); }
+
+window.addEventListener('popstate', () => {
+  if (modalOpenCount === 0) return;
+  suppressHistoryPop = true;
+  const overlays = $$('.modal-overlay').filter(o => !o.classList.contains('hidden'));
+  const top = overlays[overlays.length - 1];
+  const closeBtn = top && top.querySelector('.icon-btn');
+  if (closeBtn) closeBtn.click();
+  modalOpenCount = Math.max(0, modalOpenCount - 1);
+  suppressHistoryPop = false;
+});
+
+$$('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target !== overlay) return;
+    const closeBtn = overlay.querySelector('.icon-btn');
+    if (closeBtn) closeBtn.click();
+  });
+});
+
 /* ========================= RACHA ========================= */
 function registerCompletionToday() {
   const today = todayStr();
@@ -329,17 +369,17 @@ function renderTareas() {
 function openTaskModal() {
   $('#taskTextInput').value = '';
   $('#taskDateInput').value = todayStr();
-  $('#taskModal').classList.remove('hidden');
+  openModal('#taskModal');
   setTimeout(() => $('#taskTextInput').focus(), 50);
 }
-$('#closeTaskModal').addEventListener('click', () => $('#taskModal').classList.add('hidden'));
+$('#closeTaskModal').addEventListener('click', () => closeModal('#taskModal'));
 $('#taskNoDateBtn').addEventListener('click', () => { $('#taskDateInput').value = ''; });
 $('#saveTaskBtn').addEventListener('click', () => {
   const text = $('#taskTextInput').value.trim();
   if (!text) { toast('Escribe algo primero'); return; }
   tasks.push({ id: uid(), text, date: $('#taskDateInput').value || null, done: false, createdAt: Date.now(), doneAt: null });
   saveTasks();
-  $('#taskModal').classList.add('hidden');
+  closeModal('#taskModal');
   renderTareas(); renderHoy();
   toast('Tarea agregada');
 });
@@ -373,9 +413,6 @@ function renderNotasView() {
     setTimeout(() => $('#unlockPinInput').focus(), 50);
   }
 }
-
-function show(sel) { $(sel).classList.remove('hidden'); }
-function hide(sel) { $(sel).classList.add('hidden'); }
 
 $('#setupPinBtn').addEventListener('click', async () => {
   const p1 = $('#setupPinInput').value.trim();
@@ -518,12 +555,12 @@ async function openNoteModal(id) {
   $('#noteCategoryInput').value = note ? note.category : 'General';
   $('#noteContentInput').value = note ? await Crypto.decryptText(note.content) : '';
   $('#deleteNoteBtn').classList.toggle('hidden', !note);
-  $('#noteModal').classList.remove('hidden');
+  openModal('#noteModal');
   setTimeout(() => $('#noteTitleInput').focus(), 50);
 }
 
 $('#newNoteBtn').addEventListener('click', () => openNoteModal(null));
-$('#closeNoteModal').addEventListener('click', () => $('#noteModal').classList.add('hidden'));
+$('#closeNoteModal').addEventListener('click', () => closeModal('#noteModal'));
 
 $('#saveNoteBtn').addEventListener('click', async () => {
   const title = $('#noteTitleInput').value.trim();
@@ -539,7 +576,7 @@ $('#saveNoteBtn').addEventListener('click', async () => {
     notes.push({ id: uid(), title, category, content, createdAt: Date.now(), updatedAt: Date.now() });
   }
   saveNotes();
-  $('#noteModal').classList.add('hidden');
+  closeModal('#noteModal');
   renderNotesList();
   toast('Nota guardada');
 });
@@ -547,7 +584,7 @@ $('#saveNoteBtn').addEventListener('click', async () => {
 $('#deleteNoteBtn').addEventListener('click', () => {
   notes = notes.filter(n => n.id !== activeNoteId);
   saveNotes();
-  $('#noteModal').classList.add('hidden');
+  closeModal('#noteModal');
   renderNotesList();
   toast('Nota eliminada');
 });
@@ -560,11 +597,11 @@ function requireUnlock() {
   return new Promise((resolve) => {
     $('#quickUnlockPin').value = '';
     hide('#quickUnlockError');
-    show('#quickUnlockModal');
+    openModal('#quickUnlockModal');
     setTimeout(() => $('#quickUnlockPin').focus(), 50);
 
     function cleanup() {
-      hide('#quickUnlockModal');
+      closeModal('#quickUnlockModal');
       $('#quickUnlockBtn').onclick = null;
       $('#closeQuickUnlock').onclick = null;
       $('#quickUnlockPin').onkeydown = null;
@@ -633,6 +670,41 @@ let mediaRecorder = null;
 let audioChunks = [];
 let recordStartTime = null;
 let recordTimerInterval = null;
+let speechRecognizer = null;
+let transcriptFinal = '';
+
+const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function startTranscription() {
+  if (!SpeechRecognitionCtor) return;
+  transcriptFinal = '';
+  try {
+    speechRecognizer = new SpeechRecognitionCtor();
+    speechRecognizer.lang = 'es-CL';
+    speechRecognizer.continuous = true;
+    speechRecognizer.interimResults = true;
+    speechRecognizer.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const chunk = e.results[i][0].transcript;
+        if (e.results[i].isFinal) transcriptFinal += chunk + ' ';
+        else interim += chunk;
+      }
+      $('#qcTranscriptPreview').classList.remove('hidden');
+      $('#qcTranscriptPreview').textContent = '💬 ' + (transcriptFinal + interim).trim();
+    };
+    speechRecognizer.onerror = () => { /* no es fatal, seguimos grabando el audio igual */ };
+    speechRecognizer.start();
+  } catch (e) { speechRecognizer = null; }
+}
+
+function stopTranscription() {
+  if (speechRecognizer) {
+    try { speechRecognizer.stop(); } catch (e) { /* ignorar */ }
+  }
+  $('#qcTranscriptPreview').classList.add('hidden');
+  $('#qcTranscriptPreview').textContent = '';
+}
 
 async function toggleRecording() {
   if (mediaRecorder && mediaRecorder.state === 'recording') {
@@ -660,6 +732,7 @@ async function toggleRecording() {
   mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
   mediaRecorder.onstop = async () => {
     stream.getTracks().forEach(t => t.stop());
+    stopTranscription();
     clearInterval(recordTimerInterval);
     $('#qcRecordTimer').classList.add('hidden');
     $('#qcRecordBtn').textContent = '🎙️ Toca para grabar';
@@ -668,9 +741,16 @@ async function toggleRecording() {
     if (durationMs < 500) { toast('Grabación muy corta, intenta de nuevo'); return; }
     const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
     await saveAudioNote(blob);
+
+    const transcript = transcriptFinal.trim();
+    if (transcript) {
+      $('#transcriptTextInput').value = transcript;
+      openModal('#transcriptModal');
+    }
   };
 
   mediaRecorder.start();
+  startTranscription();
   recordStartTime = Date.now();
   $('#qcRecordBtn').textContent = '⏹ Detener grabación';
   $('#qcRecordBtn').classList.add('recording');
@@ -709,6 +789,32 @@ async function saveAudioNote(blob) {
   toast('Nota de voz guardada 🎙️');
   if ($('#view-notas').classList.contains('active')) renderNotesList();
 }
+
+/* ---- Modal de transcripcion ---- */
+$('#closeTranscriptModal').addEventListener('click', () => closeModal('#transcriptModal'));
+
+$('#transcriptAsTaskBtn').addEventListener('click', () => {
+  const text = $('#transcriptTextInput').value.trim();
+  if (!text) { toast('Escribe algo primero'); return; }
+  tasks.push({ id: uid(), text, date: todayStr(), done: false, createdAt: Date.now(), doneAt: null });
+  saveTasks();
+  renderHoy(); renderTareas();
+  closeModal('#transcriptModal');
+  toast('Tarea creada desde el audio ✅');
+});
+
+$('#transcriptAsNoteBtn').addEventListener('click', async () => {
+  const text = $('#transcriptTextInput').value.trim();
+  if (!text) { toast('Escribe algo primero'); return; }
+  const unlocked = await requireUnlock();
+  if (!unlocked) return;
+  const content = await Crypto.encryptText(text);
+  notes.push({ id: uid(), title: text.slice(0, 40), category: 'General', content, createdAt: Date.now(), updatedAt: Date.now() });
+  saveNotes();
+  closeModal('#transcriptModal');
+  if ($('#view-notas').classList.contains('active')) renderNotesList();
+  toast('Nota creada desde el audio 🗒️');
+});
 
 /* ========================= INICIO ========================= */
 function renderGreeting() {

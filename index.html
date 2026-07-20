@@ -129,6 +129,7 @@
       <button type="button" class="qc-record-btn" id="qcRecordBtn">🎙️ Toca para grabar</button>
       <span class="qc-record-timer hidden" id="qcRecordTimer">0:00</span>
     </div>
+    <div class="qc-transcript-preview hidden" id="qcTranscriptPreview"></div>
   </div>
 
   <!-- BOTTOM NAV -->
@@ -194,6 +195,22 @@
     <input type="password" id="quickUnlockPin" inputmode="numeric" maxlength="8" placeholder="PIN" class="pin-input" autocomplete="off">
     <div id="quickUnlockError" class="error-text hidden">PIN incorrecto</div>
     <button class="btn btn-primary btn-block" id="quickUnlockBtn">Desbloquear y guardar</button>
+  </div>
+</div>
+
+<!-- TRANSCRIPCION DE AUDIO -->
+<div id="transcriptModal" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <span>📝 Texto detectado en tu audio</span>
+      <button class="icon-btn" id="closeTranscriptModal">✕</button>
+    </div>
+    <div class="lock-sub">Revisa o corrige el texto antes de guardarlo.</div>
+    <textarea id="transcriptTextInput" class="text-input note-textarea" rows="4"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" id="transcriptAsTaskBtn">✅ Como tarea</button>
+      <button class="btn btn-primary" id="transcriptAsNoteBtn">🗒️ Como nota</button>
+    </div>
   </div>
 </div>
 
