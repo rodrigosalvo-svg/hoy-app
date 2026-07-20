@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="theme-color" content="#5b4ce0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hoy">
+<title>Hoy · Tareas y Notas</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- HEADER -->
+  <header class="topbar">
+    <div class="topbar-title">
+      <span id="greeting">Hola</span>
+      <span id="todayDate" class="date-sub"></span>
+    </div>
+    <div class="streak-chip" id="streakChip" title="Tu racha">
+      <span class="flame">🔥</span><span id="streakCount">0</span>
+    </div>
+  </header>
+
+  <!-- VIEWS -->
+  <main class="views">
+
+    <!-- HOY -->
+    <section id="view-hoy" class="view active">
+      <div class="progress-wrap">
+        <div class="progress-track"><div class="progress-fill" id="todayProgressFill"></div></div>
+        <div class="progress-label" id="todayProgressLabel">Sin tareas para hoy</div>
+      </div>
+
+      <div id="overdueBlock" class="overdue-block hidden">
+        <div class="section-label section-label-warn">⚠ Atrasadas</div>
+        <ul class="task-list" id="overdueList"></ul>
+      </div>
+
+      <div class="section-label">Hoy</div>
+      <ul class="task-list" id="todayList"></ul>
+      <div id="todayEmpty" class="empty-state hidden">
+        <div class="empty-emoji">🌤️</div>
+        <div>Nada pendiente para hoy.<br>Escribe abajo para agregar algo.</div>
+      </div>
+
+      <div id="doneBlock" class="done-block hidden">
+        <button class="section-label collapse-btn" id="toggleDoneToday">✓ Completadas hoy (<span id="doneTodayCount">0</span>)</button>
+        <ul class="task-list dim" id="doneTodayList"></ul>
+      </div>
+    </section>
+
+    <!-- TAREAS -->
+    <section id="view-tareas" class="view">
+      <div id="groupsContainer"></div>
+    </section>
+
+    <!-- NOTAS -->
+    <section id="view-notas" class="view">
+
+      <div id="notesLockScreen" class="lock-screen hidden">
+        <div class="lock-icon">🔒</div>
+        <div class="lock-title">Notas protegidas</div>
+        <div class="lock-sub">Ingresa tu PIN para verlas</div>
+        <input type="password" id="unlockPinInput" inputmode="numeric" maxlength="8" placeholder="PIN" class="pin-input" autocomplete="off">
+        <div id="unlockError" class="error-text hidden">PIN incorrecto</div>
+        <button class="btn btn-primary btn-block" id="unlockBtn">Desbloquear</button>
+      </div>
+
+      <div id="notesContent" class="hidden">
+        <div class="notes-toolbar">
+          <input type="search" id="notesSearch" placeholder="Buscar en notas..." class="search-input">
+          <button class="icon-btn" id="lockNotesBtn" title="Bloquear notas">🔒</button>
+        </div>
+        <div class="chip-row" id="categoryFilter">
+          <button class="chip chip-active" data-cat="Todas">Todas</button>
+          <button class="chip" data-cat="Claves">🔑 Claves</button>
+          <button class="chip" data-cat="Direcciones">📍 Direcciones</button>
+          <button class="chip" data-cat="Fechas">📅 Fechas</button>
+          <button class="chip" data-cat="General">📝 General</button>
+        </div>
+        <ul class="notes-list" id="notesList"></ul>
+        <div id="notesEmpty" class="empty-state hidden">
+          <div class="empty-emoji">🗒️</div>
+          <div>Aún no tienes notas.<br>Toca "+ Nueva nota" para crear una.</div>
+        </div>
+        <button class="btn btn-secondary btn-block" id="newNoteBtn">+ Nueva nota</button>
+      </div>
+
+      <div id="pinSetupScreen" class="lock-screen hidden">
+        <div class="lock-icon">🔑</div>
+        <div class="lock-title">Protege tus notas</div>
+        <div class="lock-sub">Vas a guardar claves y datos sensibles.<br>Crea un PIN para cifrarlas en este dispositivo.</div>
+        <input type="password" id="setupPinInput" inputmode="numeric" maxlength="8" placeholder="Crea un PIN (4-8 dígitos)" class="pin-input" autocomplete="off">
+        <input type="password" id="setupPinInput2" inputmode="numeric" maxlength="8" placeholder="Repite el PIN" class="pin-input" autocomplete="off">
+        <div id="setupError" class="error-text hidden">Los PIN no coinciden</div>
+        <button class="btn btn-primary btn-block" id="setupPinBtn">Crear PIN y continuar</button>
+        <button class="btn btn-ghost btn-block" id="skipPinBtn">Prefiero no usar PIN (menos seguro)</button>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- QUICK CAPTURE -->
+  <div class="quickcapture" id="quickCapture">
+    <div class="qc-type-row" id="qcTypeRow">
+      <button class="qc-type qc-type-active" data-type="tarea">✅ Tarea</button>
+      <button class="qc-type" data-type="nota">🗒️ Nota</button>
+    </div>
+    <div class="qc-when-row" id="qcWhenRow">
+      <button class="chip chip-active" data-when="hoy">Hoy</button>
+      <button class="chip" data-when="manana">Mañana</button>
+      <button class="chip" data-when="sinfecha">Sin fecha</button>
+    </div>
+    <form id="qcForm" class="qc-form">
+      <input type="text" id="qcInput" class="qc-input" placeholder="Anota algo rápido..." autocomplete="off">
+      <button type="submit" class="qc-submit" aria-label="Agregar">➤</button>
+    </form>
+  </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottomnav">
+    <button class="navbtn nav-active" data-view="hoy">
+      <span class="navicon">☀️</span><span>Hoy</span>
+    </button>
+    <button class="navbtn" data-view="tareas">
+      <span class="navicon">📋</span><span>Tareas</span>
+    </button>
+    <button class="navbtn" data-view="notas">
+      <span class="navicon">🗒️</span><span>Notas</span>
+    </button>
+  </nav>
+</div>
+
+<!-- NOTE EDITOR MODAL -->
+<div id="noteModal" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <span id="noteModalTitle">Nueva nota</span>
+      <button class="icon-btn" id="closeNoteModal">✕</button>
+    </div>
+    <input type="text" id="noteTitleInput" class="text-input" placeholder="Título (ej: Clave WiFi casa)">
+    <select id="noteCategoryInput" class="text-input">
+      <option value="Claves">🔑 Claves</option>
+      <option value="Direcciones">📍 Direcciones</option>
+      <option value="Fechas">📅 Fechas</option>
+      <option value="General" selected>📝 General</option>
+    </select>
+    <textarea id="noteContentInput" class="text-input note-textarea" placeholder="Escribe aquí el detalle..." rows="6"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-danger hidden" id="deleteNoteBtn">Eliminar</button>
+      <button class="btn btn-primary" id="saveNoteBtn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- TASK EDITOR MODAL (from Tareas view) -->
+<div id="taskModal" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <span>Nueva tarea</span>
+      <button class="icon-btn" id="closeTaskModal">✕</button>
+    </div>
+    <input type="text" id="taskTextInput" class="text-input" placeholder="¿Qué hay que hacer?">
+    <input type="date" id="taskDateInput" class="text-input">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" id="taskNoDateBtn">Sin fecha</button>
+      <button class="btn btn-primary" id="saveTaskBtn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
