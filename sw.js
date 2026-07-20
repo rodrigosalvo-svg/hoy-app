@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hoy-app-v3';
+const CACHE_NAME = 'hoy-app-v4';
 const ASSETS = [
   './',
   './index.html',

@@ -628,6 +628,12 @@ $$('.qc-type').forEach(btn => {
     $('#qcWhenRow').classList.toggle('hidden', qcType !== 'tarea');
     $('#qcForm').classList.toggle('hidden', qcType === 'audio');
     $('#qcAudioRow').classList.toggle('hidden', qcType !== 'audio');
+    if (qcType === 'audio' && !window.SpeechRecognitionCtorChecked) {
+      window.SpeechRecognitionCtorChecked = true;
+      if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
+        toast('Este navegador solo guardará el audio, sin transcribirlo a texto');
+      }
+    }
     $('#qcInput').placeholder = qcType === 'tarea' ? 'Anota una tarea rápida...' : 'Anota una nota rápida...';
   });
 });
@@ -676,7 +682,10 @@ let transcriptFinal = '';
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 function startTranscription() {
-  if (!SpeechRecognitionCtor) return;
+  if (!SpeechRecognitionCtor) {
+    toast('Este navegador no transcribe voz automáticamente');
+    return;
+  }
   transcriptFinal = '';
   try {
     speechRecognizer = new SpeechRecognitionCtor();
@@ -693,17 +702,27 @@ function startTranscription() {
       $('#qcTranscriptPreview').classList.remove('hidden');
       $('#qcTranscriptPreview').textContent = '💬 ' + (transcriptFinal + interim).trim();
     };
-    speechRecognizer.onerror = () => { /* no es fatal, seguimos grabando el audio igual */ };
+    speechRecognizer.onerror = (e) => { console.warn('Transcripción: ' + e.error); };
     speechRecognizer.start();
   } catch (e) { speechRecognizer = null; }
 }
 
-function stopTranscription() {
-  if (speechRecognizer) {
-    try { speechRecognizer.stop(); } catch (e) { /* ignorar */ }
-  }
-  $('#qcTranscriptPreview').classList.add('hidden');
-  $('#qcTranscriptPreview').textContent = '';
+// Espera a que el reconocimiento termine de verdad: al llamar stop(), los
+// ultimos resultados finales llegan de forma asincrona un instante despues,
+// asi que hay que esperar el evento onend antes de leer transcriptFinal.
+function stopTranscriptionAndWait() {
+  return new Promise((resolve) => {
+    $('#qcTranscriptPreview').classList.add('hidden');
+    $('#qcTranscriptPreview').textContent = '';
+    if (!speechRecognizer) { resolve(); return; }
+    const r = speechRecognizer;
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    r.onend = finish;
+    r.onerror = finish;
+    setTimeout(finish, 1500);
+    try { r.stop(); } catch (e) { finish(); }
+  });
 }
 
 async function toggleRecording() {
@@ -732,7 +751,7 @@ async function toggleRecording() {
   mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
   mediaRecorder.onstop = async () => {
     stream.getTracks().forEach(t => t.stop());
-    stopTranscription();
+    await stopTranscriptionAndWait();
     clearInterval(recordTimerInterval);
     $('#qcRecordTimer').classList.add('hidden');
     $('#qcRecordBtn').textContent = '🎙️ Toca para grabar';
