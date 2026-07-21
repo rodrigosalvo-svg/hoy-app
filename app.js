@@ -748,8 +748,25 @@ const RECOGNITION_ERROR_LABELS = {
   'aborted': 'interrumpido'
 };
 
+// Algunos Android no entregan resultados finales incrementales: en vez de eso,
+// reenvian el MISMO enunciado creciendo como si cada version fuera "final"
+// (ej: "estoy" -> "estoy haciendo" -> "estoy haciendo una prueba"). Si se suman
+// todas esas versiones se repite el texto una y otra vez. Esta funcion detecta
+// cuando una frase nueva es solo una version mas larga (o mas corta) de la que
+// ya tenemos, y se queda con la mas completa en vez de concatenar todo.
+function mergeSpokenText(base, addition) {
+  const a = addition.trim();
+  if (!a) return base;
+  if (!base) return a;
+  const baseLower = base.toLowerCase();
+  const aLower = a.toLowerCase();
+  if (aLower.startsWith(baseLower)) return a; // version mas completa del mismo enunciado
+  if (baseLower.startsWith(aLower)) return base; // version mas corta, ya la tenemos completa
+  return base + ' ' + a; // frase realmente nueva
+}
+
 function commitSession() {
-  transcriptFinal += sessionFinal;
+  transcriptFinal = mergeSpokenText(transcriptFinal, sessionFinal);
   sessionFinal = '';
 }
 
@@ -765,16 +782,17 @@ function launchRecognizer() {
       // Se reconstruye todo el resultado final de esta sesion desde el indice 0
       // en vez de usar e.resultIndex: en algunos Android no es confiable y
       // termina repitiendo texto que ya se habia agregado.
-      let final = '';
+      let merged = '';
       let interim = '';
       for (let i = 0; i < e.results.length; i++) {
         const chunk = e.results[i][0].transcript;
-        if (e.results[i].isFinal) final += chunk + ' ';
+        if (e.results[i].isFinal) merged = mergeSpokenText(merged, chunk);
         else interim += chunk;
       }
-      sessionFinal = final;
+      sessionFinal = merged;
+      const preview = mergeSpokenText(transcriptFinal, sessionFinal) + ' ' + interim;
       $('#qcTranscriptPreview').classList.remove('hidden');
-      $('#qcTranscriptPreview').textContent = '💬 ' + (transcriptFinal + sessionFinal + interim).trim();
+      $('#qcTranscriptPreview').textContent = '💬 ' + preview.trim();
     };
     speechRecognizer.onerror = (e) => {
       console.warn('Dictado: ' + e.error);
@@ -919,11 +937,16 @@ $('#transcriptAsNoteBtn').addEventListener('click', async () => {
 });
 
 /* ========================= INICIO ========================= */
+// Se actualiza junto con CACHE_NAME en sw.js en cada release, para poder
+// confirmar de un vistazo si un dispositivo ya cargo la ultima version.
+const APP_VERSION = 'v10';
+
 function renderGreeting() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Buenos días' : hour < 20 ? 'Buenas tardes' : 'Buenas noches';
   $('#greeting').textContent = greeting;
   $('#todayDate').textContent = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('#appVersion').textContent = APP_VERSION;
 }
 
 function init() {
