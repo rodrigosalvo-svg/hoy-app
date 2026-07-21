@@ -729,7 +729,8 @@ $('#qcRecordBtn').addEventListener('click', toggleRecording);
 
 /* ---- Dictar (solo transcripcion de voz a texto, sin grabar audio) ---- */
 let speechRecognizer = null;
-let transcriptFinal = '';
+let transcriptFinal = ''; // acumulado de TODAS las sesiones de reconocimiento (persiste entre reinicios)
+let sessionFinal = ''; // acumulado de la sesion actual; se reconstruye entera en cada evento para no depender de resultIndex, que en Android no siempre es confiable y puede repetir texto ya captado
 let recognitionActive = false; // true mientras QUEREMOS estar dictando (para saber si hay que reintentar)
 let recognitionEverStarted = false; // si onstart nunca llega, no se pudo tomar el microfono
 let recognitionRestartCount = 0; // cuantas veces se reinicio solo sin haber captado nada todavia
@@ -747,7 +748,13 @@ const RECOGNITION_ERROR_LABELS = {
   'aborted': 'interrumpido'
 };
 
+function commitSession() {
+  transcriptFinal += sessionFinal;
+  sessionFinal = '';
+}
+
 function launchRecognizer() {
+  sessionFinal = '';
   try {
     speechRecognizer = new SpeechRecognitionCtor();
     speechRecognizer.lang = 'es-CL';
@@ -755,14 +762,19 @@ function launchRecognizer() {
     speechRecognizer.interimResults = true;
     speechRecognizer.onstart = () => { recognitionEverStarted = true; };
     speechRecognizer.onresult = (e) => {
+      // Se reconstruye todo el resultado final de esta sesion desde el indice 0
+      // en vez de usar e.resultIndex: en algunos Android no es confiable y
+      // termina repitiendo texto que ya se habia agregado.
+      let final = '';
       let interim = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      for (let i = 0; i < e.results.length; i++) {
         const chunk = e.results[i][0].transcript;
-        if (e.results[i].isFinal) transcriptFinal += chunk + ' ';
+        if (e.results[i].isFinal) final += chunk + ' ';
         else interim += chunk;
       }
+      sessionFinal = final;
       $('#qcTranscriptPreview').classList.remove('hidden');
-      $('#qcTranscriptPreview').textContent = '💬 ' + (transcriptFinal + interim).trim();
+      $('#qcTranscriptPreview').textContent = '💬 ' + (transcriptFinal + sessionFinal + interim).trim();
     };
     speechRecognizer.onerror = (e) => {
       console.warn('Dictado: ' + e.error);
@@ -771,6 +783,7 @@ function launchRecognizer() {
       }
     };
     speechRecognizer.onend = () => {
+      commitSession();
       // En Android el reconocimiento suele cortarse solo tras un silencio
       // aunque continuous=true. Si seguimos dictando, lo reiniciamos.
       if (recognitionActive) {
@@ -794,7 +807,7 @@ function stopDictationAndWait() {
     if (!speechRecognizer) { resolve(); return; }
     const r = speechRecognizer;
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
+    const finish = () => { if (!done) { done = true; commitSession(); resolve(); } };
     r.onend = finish;
     r.onerror = finish;
     setTimeout(finish, 1500);
