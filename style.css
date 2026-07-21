@@ -222,10 +222,11 @@ ul { list-style: none; margin: 0; padding: 0; }
   box-shadow: 0 -8px 30px rgba(0,0,0,0.25);
   z-index: 20;
 }
-.qc-type-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.qc-type-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
 .qc-type {
-  flex: 1; padding: 8px; border-radius: 12px; border: 1px solid var(--border);
-  background: var(--bg-elev-2); color: var(--text-dim); font-weight: 700; font-size: 13px; cursor: pointer;
+  flex: 1; min-width: 72px; padding: 8px 4px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--bg-elev-2); color: var(--text-dim); font-weight: 700; font-size: 12px; cursor: pointer;
+  white-space: nowrap;
 }
 .qc-type-active { background: var(--accent-gradient); color: #fff; border-color: transparent; }
 .qc-when-row { display: flex; gap: 8px; margin-bottom: 8px; }

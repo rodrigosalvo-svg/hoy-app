@@ -626,12 +626,13 @@ $$('.qc-type').forEach(btn => {
     qcType = btn.dataset.type;
     $$('.qc-type').forEach(b => b.classList.toggle('qc-type-active', b === btn));
     $('#qcWhenRow').classList.toggle('hidden', qcType !== 'tarea');
-    $('#qcForm').classList.toggle('hidden', qcType === 'audio');
+    $('#qcForm').classList.toggle('hidden', qcType === 'audio' || qcType === 'dictar');
     $('#qcAudioRow').classList.toggle('hidden', qcType !== 'audio');
-    if (qcType === 'audio' && !window.SpeechRecognitionCtorChecked) {
+    $('#qcDictateRow').classList.toggle('hidden', qcType !== 'dictar');
+    if (qcType === 'dictar' && !window.SpeechRecognitionCtorChecked) {
       window.SpeechRecognitionCtorChecked = true;
       if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) {
-        toast('Este navegador solo guardará el audio, sin transcribirlo a texto');
+        toast('Este navegador no soporta dictado por voz');
       }
     }
     $('#qcInput').placeholder = qcType === 'tarea' ? 'Anota una tarea rápida...' : 'Anota una nota rápida...';
@@ -671,47 +672,80 @@ $('#qcForm').addEventListener('submit', async (e) => {
   input.focus();
 });
 
-/* ---- Nota de voz ---- */
+/* ---- Nota de voz (solo audio, sin transcripcion simultanea) ---- */
 let mediaRecorder = null;
 let audioChunks = [];
 let recordStartTime = null;
 let recordTimerInterval = null;
+
+async function toggleRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+    return;
+  }
+  const unlocked = await requireUnlock();
+  if (!unlocked) return;
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    toast('Tu navegador no permite grabar audio aquí');
+    return;
+  }
+
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    toast('No se pudo acceder al micrófono');
+    return;
+  }
+
+  audioChunks = [];
+  mediaRecorder = new MediaRecorder(stream);
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+  mediaRecorder.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    clearInterval(recordTimerInterval);
+    $('#qcRecordTimer').classList.add('hidden');
+    $('#qcRecordBtn').textContent = '🎙️ Toca para grabar';
+    $('#qcRecordBtn').classList.remove('recording');
+    const durationMs = Date.now() - recordStartTime;
+    if (durationMs < 500) { toast('Grabación muy corta, intenta de nuevo'); return; }
+    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+    await saveAudioNote(blob);
+  };
+
+  mediaRecorder.start();
+  recordStartTime = Date.now();
+  $('#qcRecordBtn').textContent = '⏹ Detener grabación';
+  $('#qcRecordBtn').classList.add('recording');
+  $('#qcRecordTimer').classList.remove('hidden');
+  recordTimerInterval = setInterval(() => {
+    const secs = Math.floor((Date.now() - recordStartTime) / 1000);
+    $('#qcRecordTimer').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  }, 500);
+}
+
+$('#qcRecordBtn').addEventListener('click', toggleRecording);
+
+/* ---- Dictar (solo transcripcion de voz a texto, sin grabar audio) ---- */
 let speechRecognizer = null;
 let transcriptFinal = '';
-let recognitionActive = false; // true mientras QUEREMOS estar transcribiendo (para saber si hay que reintentar)
-let recognitionEverStarted = false; // si onstart nunca llega, el mic no se pudo compartir con la grabacion
+let recognitionActive = false; // true mientras QUEREMOS estar dictando (para saber si hay que reintentar)
+let recognitionEverStarted = false; // si onstart nunca llega, no se pudo tomar el microfono
 let recognitionRestartCount = 0; // cuantas veces se reinicio solo sin haber captado nada todavia
+let dictateStartTime = null;
+let dictateTimerInterval = null;
 
 const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 const RECOGNITION_ERROR_LABELS = {
   'not-allowed': 'permiso de micrófono denegado',
   'service-not-allowed': 'servicio de voz bloqueado',
-  'audio-capture': 'no se pudo compartir el micrófono con la grabación',
+  'audio-capture': 'no hay micrófono disponible',
   'network': 'sin conexión a internet',
   'no-speech': 'no detectó voz',
   'aborted': 'interrumpido'
 };
-
-function startTranscription() {
-  if (!SpeechRecognitionCtor) {
-    toast('Este navegador no transcribe voz automáticamente');
-    return;
-  }
-  transcriptFinal = '';
-  recognitionActive = true;
-  recognitionEverStarted = false;
-  recognitionRestartCount = 0;
-  launchRecognizer();
-
-  // Si nunca llega onstart, lo mas probable es que el celular no deje usar
-  // el microfono para transcribir mientras ya se esta grabando el audio.
-  setTimeout(() => {
-    if (recognitionActive && !recognitionEverStarted) {
-      toast('No se pudo iniciar la transcripción en este dispositivo');
-    }
-  }, 3000);
-}
 
 function launchRecognizer() {
   try {
@@ -731,19 +765,16 @@ function launchRecognizer() {
       $('#qcTranscriptPreview').textContent = '💬 ' + (transcriptFinal + interim).trim();
     };
     speechRecognizer.onerror = (e) => {
-      console.warn('Transcripción: ' + e.error);
+      console.warn('Dictado: ' + e.error);
       if (e.error !== 'no-speech' && e.error !== 'aborted') {
-        toast('Transcripción: ' + (RECOGNITION_ERROR_LABELS[e.error] || e.error));
+        toast('Dictado: ' + (RECOGNITION_ERROR_LABELS[e.error] || e.error));
       }
     };
     speechRecognizer.onend = () => {
       // En Android el reconocimiento suele cortarse solo tras un silencio
-      // aunque continuous=true. Si seguimos grabando, lo reiniciamos.
-      if (recognitionActive && mediaRecorder && mediaRecorder.state === 'recording') {
+      // aunque continuous=true. Si seguimos dictando, lo reiniciamos.
+      if (recognitionActive) {
         recognitionRestartCount++;
-        // Si se reinicio varias veces sin captar nada, probablemente el
-        // microfono no le esta llegando de verdad (permiso del sistema,
-        // no solo del sitio) en vez de que simplemente no haya hablado.
         if (recognitionRestartCount === 3 && !transcriptFinal.trim()) {
           toast('Sin voz detectada: revisa el permiso de micrófono de "Google" en Ajustes del celular');
         }
@@ -757,11 +788,9 @@ function launchRecognizer() {
 // Espera a que el reconocimiento termine de verdad: al llamar stop(), los
 // ultimos resultados finales llegan de forma asincrona un instante despues,
 // asi que hay que esperar el evento onend antes de leer transcriptFinal.
-function stopTranscriptionAndWait() {
+function stopDictationAndWait() {
   recognitionActive = false;
   return new Promise((resolve) => {
-    $('#qcTranscriptPreview').classList.add('hidden');
-    $('#qcTranscriptPreview').textContent = '';
     if (!speechRecognizer) { resolve(); return; }
     const r = speechRecognizer;
     let done = false;
@@ -773,69 +802,55 @@ function stopTranscriptionAndWait() {
   });
 }
 
-async function toggleRecording() {
-  if (mediaRecorder && mediaRecorder.state === 'recording') {
-    mediaRecorder.stop();
+async function toggleDictation() {
+  if (recognitionActive) {
+    clearInterval(dictateTimerInterval);
+    $('#qcDictateTimer').classList.add('hidden');
+    $('#qcDictateBtn').textContent = '🗣️ Toca para dictar';
+    $('#qcDictateBtn').classList.remove('recording');
+    await stopDictationAndWait();
+    $('#qcTranscriptPreview').classList.add('hidden');
+    $('#qcTranscriptPreview').textContent = '';
+    const transcript = transcriptFinal.trim();
+    if (transcript) {
+      $('#transcriptTextInput').value = transcript;
+      openModal('#transcriptModal');
+    } else {
+      toast('No se detectó voz, intenta de nuevo');
+    }
+    return;
+  }
+
+  if (!SpeechRecognitionCtor) {
+    toast('Este navegador no soporta dictado por voz');
     return;
   }
   const unlocked = await requireUnlock();
   if (!unlocked) return;
 
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    toast('Tu navegador no permite grabar audio aquí');
-    return;
-  }
+  transcriptFinal = '';
+  recognitionActive = true;
+  recognitionEverStarted = false;
+  recognitionRestartCount = 0;
+  launchRecognizer();
 
-  // Se pide el microfono para transcribir ANTES de abrir el stream de
-  // grabacion: en algunos celulares Android, si ambos piden el microfono
-  // al mismo tiempo, solo uno de los dos logra usarlo.
-  startTranscription();
-  await new Promise((r) => setTimeout(r, 300));
-
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) {
-    toast('No se pudo acceder al micrófono');
-    recognitionActive = false;
-    if (speechRecognizer) { try { speechRecognizer.stop(); } catch (e2) { /* ignorar */ } }
-    return;
-  }
-
-  audioChunks = [];
-  mediaRecorder = new MediaRecorder(stream);
-  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
-  mediaRecorder.onstop = async () => {
-    stream.getTracks().forEach(t => t.stop());
-    await stopTranscriptionAndWait();
-    clearInterval(recordTimerInterval);
-    $('#qcRecordTimer').classList.add('hidden');
-    $('#qcRecordBtn').textContent = '🎙️ Toca para grabar';
-    $('#qcRecordBtn').classList.remove('recording');
-    const durationMs = Date.now() - recordStartTime;
-    if (durationMs < 500) { toast('Grabación muy corta, intenta de nuevo'); return; }
-    const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-    await saveAudioNote(blob);
-
-    const transcript = transcriptFinal.trim();
-    if (transcript) {
-      $('#transcriptTextInput').value = transcript;
-      openModal('#transcriptModal');
+  setTimeout(() => {
+    if (recognitionActive && !recognitionEverStarted) {
+      toast('No se pudo iniciar el dictado en este dispositivo');
     }
-  };
+  }, 3000);
 
-  mediaRecorder.start();
-  recordStartTime = Date.now();
-  $('#qcRecordBtn').textContent = '⏹ Detener grabación';
-  $('#qcRecordBtn').classList.add('recording');
-  $('#qcRecordTimer').classList.remove('hidden');
-  recordTimerInterval = setInterval(() => {
-    const secs = Math.floor((Date.now() - recordStartTime) / 1000);
-    $('#qcRecordTimer').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  dictateStartTime = Date.now();
+  $('#qcDictateBtn').textContent = '⏹ Detener dictado';
+  $('#qcDictateBtn').classList.add('recording');
+  $('#qcDictateTimer').classList.remove('hidden');
+  dictateTimerInterval = setInterval(() => {
+    const secs = Math.floor((Date.now() - dictateStartTime) / 1000);
+    $('#qcDictateTimer').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
   }, 500);
 }
 
-$('#qcRecordBtn').addEventListener('click', toggleRecording);
+$('#qcDictateBtn').addEventListener('click', toggleDictation);
 
 async function saveAudioNote(blob) {
   const id = uid();
