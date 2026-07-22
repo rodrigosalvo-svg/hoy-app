@@ -25,8 +25,11 @@
       <span id="todayDate" class="date-sub"></span>
       <span id="appVersion" class="app-version"></span>
     </div>
-    <div class="streak-chip" id="streakChip" title="Tu racha">
-      <span class="flame">🔥</span><span id="streakCount">0</span>
+    <div class="topbar-actions">
+      <button class="icon-btn" id="settingsBtn" title="Respaldo">⚙️</button>
+      <div class="streak-chip" id="streakChip" title="Tu racha">
+        <span class="flame">🔥</span><span id="streakCount">0</span>
+      </div>
     </div>
   </header>
 
@@ -217,6 +220,24 @@
       <button class="btn btn-secondary" id="transcriptAsTaskBtn">✅ Como tarea</button>
       <button class="btn btn-primary" id="transcriptAsNoteBtn">🗒️ Como nota</button>
     </div>
+  </div>
+</div>
+
+<!-- RESPALDO -->
+<div id="settingsModal" class="modal-overlay hidden">
+  <div class="modal-sheet">
+    <div class="modal-header">
+      <span>⚙️ Respaldo de tus datos</span>
+      <button class="icon-btn" id="closeSettingsModal">✕</button>
+    </div>
+    <div class="lock-sub">
+      Todo se guarda solo en este dispositivo. Si borras el historial o los datos
+      del navegador, se pierde para siempre a menos que tengas un respaldo. Guarda
+      el archivo en Google Drive, email, etc.
+    </div>
+    <button class="btn btn-primary btn-block" id="exportBackupBtn">⬇️ Descargar respaldo</button>
+    <button class="btn btn-secondary btn-block" id="importBackupBtn">⬆️ Restaurar desde un respaldo</button>
+    <input type="file" id="importBackupInput" accept="application/json" class="hidden">
   </div>
 </div>
 

@@ -57,7 +57,18 @@ function saveLockMeta() { Store.set('hoy_lockmeta', lockMeta); }
 const Crypto = {
   sessionKey: null, // CryptoKey en memoria, nunca persistido
 
-  buf2b64(buf) { return btoa(String.fromCharCode(...new Uint8Array(buf))); },
+  buf2b64(buf) {
+    // Se convierte en trozos: pasar un typed array grande (ej. un audio)
+    // entero a String.fromCharCode(...bytes) revienta el limite de
+    // argumentos del motor de JS.
+    const bytes = new Uint8Array(buf);
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+    }
+    return btoa(binary);
+  },
   b642buf(b64) { return Uint8Array.from(atob(b64), c => c.charCodeAt(0)); },
 
   async deriveKey(pin, saltB64) {
@@ -936,10 +947,99 @@ $('#transcriptAsNoteBtn').addEventListener('click', async () => {
   toast('Nota creada desde el audio 🗒️');
 });
 
+/* ========================= RESPALDO ========================= */
+$('#settingsBtn').addEventListener('click', () => openModal('#settingsModal'));
+$('#closeSettingsModal').addEventListener('click', () => closeModal('#settingsModal'));
+
+async function exportBackup() {
+  const audioExport = {};
+  for (const n of notes) {
+    if (!n.isAudio) continue;
+    const payload = await AudioDB.get(n.id);
+    if (!payload) continue;
+    if (payload.encrypted) {
+      audioExport[n.id] = {
+        encrypted: true,
+        mime: payload.mime,
+        iv: Crypto.buf2b64(payload.iv),
+        ciphertext: Crypto.buf2b64(payload.ciphertext)
+      };
+    } else {
+      const buffer = await payload.blob.arrayBuffer();
+      audioExport[n.id] = { encrypted: false, mime: payload.mime, data: Crypto.buf2b64(buffer) };
+    }
+  }
+
+  const backup = {
+    app: 'hoy-app', version: 1, exportedAt: Date.now(),
+    tasks, notes, streak, settings, lockMeta, audio: audioExport
+  };
+
+  const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `hoy-respaldo-${todayStr()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast('Respaldo descargado ⬇️');
+}
+
+async function importBackup(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch (e) {
+    toast('Ese archivo no es un respaldo válido');
+    return;
+  }
+  if (!data || !Array.isArray(data.tasks) || !Array.isArray(data.notes)) {
+    toast('Ese archivo no es un respaldo válido');
+    return;
+  }
+  if (!confirm('Esto reemplaza todas tus tareas y notas actuales por las del respaldo. ¿Continuar?')) return;
+
+  Store.set('hoy_tasks', data.tasks);
+  Store.set('hoy_notes', data.notes);
+  if (data.streak) Store.set('hoy_streak', data.streak);
+  if (data.settings) Store.set('hoy_settings', data.settings);
+  if (data.lockMeta) Store.set('hoy_lockmeta', data.lockMeta);
+  else localStorage.removeItem('hoy_lockmeta');
+  // Para no volver a preguntar si quiere PIN cuando ya se habia decidido antes
+  Store.set('hoy_pin_decision', data.settings && data.settings.lockEnabled ? 'protected' : 'skipped');
+
+  // Fuerza una conexion nueva a IndexedDB por si la que ya estaba abierta en
+  // esta pestaña quedo invalida (ej. si los datos del navegador se borraron
+  // sin recargar la pagina).
+  AudioDB.db = null;
+
+  if (data.audio) {
+    for (const [id, payload] of Object.entries(data.audio)) {
+      const stored = payload.encrypted
+        ? { encrypted: true, mime: payload.mime, iv: Crypto.b642buf(payload.iv), ciphertext: Crypto.b642buf(payload.ciphertext).buffer }
+        : { encrypted: false, mime: payload.mime, blob: new Blob([Crypto.b642buf(payload.data).buffer], { type: payload.mime }) };
+      try { await AudioDB.put(id, stored); } catch (e) { /* se omite ese audio si falla */ }
+    }
+  }
+
+  toast('Respaldo restaurado, recargando…');
+  setTimeout(() => location.reload(), 1000);
+}
+
+$('#exportBackupBtn').addEventListener('click', () => { exportBackup(); });
+$('#importBackupBtn').addEventListener('click', () => $('#importBackupInput').click());
+$('#importBackupInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) importBackup(file);
+  e.target.value = '';
+});
+
 /* ========================= INICIO ========================= */
 // Se actualiza junto con CACHE_NAME en sw.js en cada release, para poder
 // confirmar de un vistazo si un dispositivo ya cargo la ultima version.
-const APP_VERSION = 'v10';
+const APP_VERSION = 'v12';
 
 function renderGreeting() {
   const hour = new Date().getHours();
