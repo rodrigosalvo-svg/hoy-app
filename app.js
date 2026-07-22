@@ -303,8 +303,9 @@ function bindTaskListEvents() {
     const id = li.dataset.id;
     const toggleBtn = li.querySelector('[data-action="toggle"]');
     const delBtn = li.querySelector('[data-action="delete"]');
-    toggleBtn.onclick = () => toggleTask(id);
-    delBtn.onclick = () => removeTask(id, li);
+    toggleBtn.onclick = (e) => { e.stopPropagation(); toggleTask(id); };
+    delBtn.onclick = (e) => { e.stopPropagation(); removeTask(id, li); };
+    li.onclick = () => openTaskModal(id);
   });
 }
 
@@ -376,10 +377,16 @@ function renderTareas() {
   $('#addTaskBtn').addEventListener('click', () => openTaskModal());
 }
 
-/* ---- Modal de tarea (vista Tareas) ---- */
-function openTaskModal() {
-  $('#taskTextInput').value = '';
-  $('#taskDateInput').value = todayStr();
+/* ---- Modal de tarea (nueva o editar) ---- */
+let activeTaskId = null;
+
+function openTaskModal(id) {
+  activeTaskId = id || null;
+  const task = id ? tasks.find(t => t.id === id) : null;
+  $('#taskModalTitle').textContent = task ? 'Editar tarea' : 'Nueva tarea';
+  $('#taskTextInput').value = task ? task.text : '';
+  $('#taskDateInput').value = task ? (task.date || '') : todayStr();
+  $('#deleteTaskBtn').classList.toggle('hidden', !task);
   openModal('#taskModal');
   setTimeout(() => $('#taskTextInput').focus(), 50);
 }
@@ -388,11 +395,26 @@ $('#taskNoDateBtn').addEventListener('click', () => { $('#taskDateInput').value 
 $('#saveTaskBtn').addEventListener('click', () => {
   const text = $('#taskTextInput').value.trim();
   if (!text) { toast('Escribe algo primero'); return; }
-  tasks.push({ id: uid(), text, date: $('#taskDateInput').value || null, done: false, createdAt: Date.now(), doneAt: null });
+  const date = $('#taskDateInput').value || null;
+  if (activeTaskId) {
+    const task = tasks.find(t => t.id === activeTaskId);
+    Object.assign(task, { text, date });
+    toast('Tarea actualizada');
+  } else {
+    tasks.push({ id: uid(), text, date, done: false, createdAt: Date.now(), doneAt: null });
+    toast('Tarea agregada');
+  }
   saveTasks();
   closeModal('#taskModal');
   renderTareas(); renderHoy();
-  toast('Tarea agregada');
+});
+
+$('#deleteTaskBtn').addEventListener('click', () => {
+  tasks = tasks.filter(t => t.id !== activeTaskId);
+  saveTasks();
+  closeModal('#taskModal');
+  renderTareas(); renderHoy();
+  toast('Tarea eliminada');
 });
 
 /* ========================= VISTA NOTAS ========================= */
@@ -1039,7 +1061,7 @@ $('#importBackupInput').addEventListener('change', (e) => {
 /* ========================= INICIO ========================= */
 // Se actualiza junto con CACHE_NAME en sw.js en cada release, para poder
 // confirmar de un vistazo si un dispositivo ya cargo la ultima version.
-const APP_VERSION = 'v12';
+const APP_VERSION = 'v13';
 
 function renderGreeting() {
   const hour = new Date().getHours();

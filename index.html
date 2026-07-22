@@ -177,16 +177,17 @@
   </div>
 </div>
 
-<!-- TASK EDITOR MODAL (from Tareas view) -->
+<!-- TASK EDITOR MODAL (nueva o editar, desde Hoy o Tareas) -->
 <div id="taskModal" class="modal-overlay hidden">
   <div class="modal-sheet">
     <div class="modal-header">
-      <span>Nueva tarea</span>
+      <span id="taskModalTitle">Nueva tarea</span>
       <button class="icon-btn" id="closeTaskModal">✕</button>
     </div>
     <input type="text" id="taskTextInput" class="text-input" placeholder="¿Qué hay que hacer?">
     <input type="date" id="taskDateInput" class="text-input">
     <div class="modal-actions">
+      <button class="btn btn-danger hidden" id="deleteTaskBtn">Eliminar</button>
       <button class="btn btn-ghost" id="taskNoDateBtn">Sin fecha</button>
       <button class="btn btn-primary" id="saveTaskBtn">Guardar</button>
     </div>
