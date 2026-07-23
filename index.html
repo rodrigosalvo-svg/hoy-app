@@ -224,13 +224,23 @@
   </div>
 </div>
 
-<!-- RESPALDO -->
+<!-- AJUSTES -->
 <div id="settingsModal" class="modal-overlay hidden">
   <div class="modal-sheet">
     <div class="modal-header">
-      <span>⚙️ Respaldo de tus datos</span>
+      <span>⚙️ Ajustes</span>
       <button class="icon-btn" id="closeSettingsModal">✕</button>
     </div>
+
+    <div class="section-label">Avisos de vencidas</div>
+    <div class="lock-sub">
+      Cada vez que abras la app con alguna tarea vencida, te llega una notificación
+      y vibración para que no se te escape. Solo funciona mientras abras la app de
+      vez en cuando; no llega si la tienes cerrada por completo.
+    </div>
+    <button class="btn btn-primary btn-block" id="notifyBtn">🔔 Activar avisos de vencidas</button>
+
+    <div class="section-label">Respaldo</div>
     <div class="lock-sub">
       Todo se guarda solo en este dispositivo. Si borras el historial o los datos
       del navegador, se pierde para siempre a menos que tengas un respaldo. Guarda

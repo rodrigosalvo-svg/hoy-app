@@ -1058,10 +1058,73 @@ $('#importBackupInput').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
+/* ========================= AVISOS DE VENCIDAS ========================= */
+let notifyEnabled = Store.get('hoy_notify_enabled', false);
+let lastNagAt = 0;
+
+function updateNotifyBtnLabel() {
+  $('#notifyBtn').textContent = notifyEnabled ? '🔔 Avisos activados (toca para desactivar)' : '🔕 Activar avisos de vencidas';
+}
+updateNotifyBtnLabel();
+
+$('#notifyBtn').addEventListener('click', async () => {
+  if (notifyEnabled) {
+    notifyEnabled = false;
+    Store.set('hoy_notify_enabled', false);
+    updateNotifyBtnLabel();
+    toast('Avisos desactivados');
+    return;
+  }
+  if (!('Notification' in window)) {
+    toast('Tu navegador no soporta notificaciones');
+    return;
+  }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') {
+    toast('Necesitas dar permiso de notificaciones');
+    return;
+  }
+  notifyEnabled = true;
+  Store.set('hoy_notify_enabled', true);
+  updateNotifyBtnLabel();
+  toast('Avisos activados 🔔');
+  checkOverdueAndNotify(true);
+});
+
+async function checkOverdueAndNotify(force) {
+  if (!notifyEnabled) return;
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const today = todayStr();
+  const overdue = tasks.filter(t => !t.done && t.date && t.date < today);
+  if (overdue.length === 0) return;
+
+  const now = Date.now();
+  if (!force && now - lastNagAt < 30 * 60 * 1000) return;
+  lastNagAt = now;
+
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+
+  const title = overdue.length === 1 ? '⚠️ Tienes una tarea vencida' : `⚠️ Tienes ${overdue.length} tareas vencidas`;
+  const body = overdue.slice(0, 3).map(t => '• ' + t.text).join('\n') + (overdue.length > 3 ? `\n…y ${overdue.length - 3} más` : '');
+
+  try {
+    if ('serviceWorker' in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'overdue-tasks', vibrate: [200, 100, 200] });
+    } else {
+      new Notification(title, { body, icon: 'icons/icon-192.png' });
+    }
+  } catch (e) { /* si el navegador bloquea la notificacion, no hacemos nada mas */ }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') checkOverdueAndNotify();
+});
+
 /* ========================= INICIO ========================= */
 // Se actualiza junto con CACHE_NAME en sw.js en cada release, para poder
 // confirmar de un vistazo si un dispositivo ya cargo la ultima version.
-const APP_VERSION = 'v13';
+const APP_VERSION = 'v14';
 
 function renderGreeting() {
   const hour = new Date().getHours();
@@ -1076,6 +1139,7 @@ function init() {
   renderHoy();
   renderTareas();
   renderStreak();
+  checkOverdueAndNotify(true);
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then((reg) => {
