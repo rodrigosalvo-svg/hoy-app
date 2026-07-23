@@ -241,6 +241,60 @@ function renderStreak() {
   chip.classList.toggle('on', !!streak.count && active);
 }
 
+/* ========================= RECOMPENSA AL COMPLETAR ========================= */
+function playChime() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const now = ctx.currentTime;
+    [523.25, 659.25, 783.99].forEach((freq, i) => { // Do-Mi-Sol ascendente
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, now + i * 0.09);
+      gain.gain.exponentialRampToValueAtTime(0.18, now + i * 0.09 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.09 + 0.28);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + i * 0.09);
+      osc.stop(now + i * 0.09 + 0.3);
+    });
+  } catch (e) { /* si el navegador bloquea audio, la celebracion sigue siendo visual */ }
+}
+
+function spawnConfetti(x, y) {
+  const emojis = ['🎉', '✨', '⭐', '🎊'];
+  for (let i = 0; i < 10; i++) {
+    const el = document.createElement('span');
+    el.className = 'confetti-piece';
+    el.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 60 + Math.random() * 60;
+    el.style.left = x + 'px';
+    el.style.top = y + 'px';
+    el.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+    el.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 900);
+  }
+}
+
+function celebrateCompletion(el) {
+  const rect = el.getBoundingClientRect();
+  spawnConfetti(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  playChime();
+  if (navigator.vibrate) navigator.vibrate(60);
+}
+
+/* ========================= BADGE DEL ICONO ========================= */
+function updateAppBadge() {
+  if (!('setAppBadge' in navigator)) return;
+  const today = todayStr();
+  const count = tasks.filter(t => !t.done && t.date && t.date <= today).length;
+  if (count > 0) navigator.setAppBadge(count).catch(() => {});
+  else navigator.clearAppBadge().catch(() => {});
+}
+
 /* ========================= NAVEGACIÓN ========================= */
 function switchView(name) {
   $$('.view').forEach(v => v.classList.remove('active'));
@@ -280,6 +334,8 @@ function renderHoy() {
 
   bindTaskListEvents();
   renderStreak();
+  updateAppBadge();
+  updateFocusEntryVisibility();
 }
 
 function taskItemHtml(t, isOverdue) {
@@ -303,18 +359,21 @@ function bindTaskListEvents() {
     const id = li.dataset.id;
     const toggleBtn = li.querySelector('[data-action="toggle"]');
     const delBtn = li.querySelector('[data-action="delete"]');
-    toggleBtn.onclick = (e) => { e.stopPropagation(); toggleTask(id); };
+    toggleBtn.onclick = (e) => { e.stopPropagation(); toggleTask(id, toggleBtn); };
     delBtn.onclick = (e) => { e.stopPropagation(); removeTask(id, li); };
     li.onclick = () => openTaskModal(id);
   });
 }
 
-function toggleTask(id) {
+function toggleTask(id, btnEl) {
   const t = tasks.find(x => x.id === id);
   if (!t) return;
   t.done = !t.done;
   t.doneAt = t.done ? Date.now() : null;
-  if (t.done) registerCompletionToday();
+  if (t.done) {
+    registerCompletionToday();
+    if (btnEl) celebrateCompletion(btnEl);
+  }
   saveTasks();
   renderHoy();
   renderTareas();
@@ -1121,10 +1180,110 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') checkOverdueAndNotify();
 });
 
+/* ========================= MODO ENFOQUE ========================= */
+let focusQueue = [];
+let focusIndex = 0;
+let focusTimerInterval = null;
+let focusTimerEndAt = null;
+
+function getFocusCandidates() {
+  const today = todayStr();
+  const overdue = tasks.filter(t => !t.done && t.date && t.date < today);
+  const todays = tasks.filter(t => !t.done && t.date === today);
+  return [...overdue, ...todays];
+}
+
+function updateFocusEntryVisibility() {
+  $('#focusEntryBtn').classList.toggle('hidden', getFocusCandidates().length === 0);
+}
+
+function renderFocusTask() {
+  if (focusIndex >= focusQueue.length) focusIndex = 0;
+  const task = focusQueue[focusIndex];
+  if (!task) { closeModal('#focusModal'); return; }
+  $('#focusTaskText').textContent = task.text;
+  $('#focusTaskDate').textContent = task.date ? humanDate(task.date) : '';
+  stopFocusTimer();
+}
+
+function openFocusMode() {
+  focusQueue = getFocusCandidates();
+  if (focusQueue.length === 0) { toast('¡Nada pendiente ahora! 🎉'); return; }
+  focusIndex = 0;
+  renderFocusTask();
+  openModal('#focusModal');
+}
+
+$('#focusEntryBtn').addEventListener('click', openFocusMode);
+$('#closeFocusModal').addEventListener('click', () => { stopFocusTimer(); closeModal('#focusModal'); });
+
+$('#focusSkipBtn').addEventListener('click', () => {
+  if (focusQueue.length === 0) return;
+  focusIndex = (focusIndex + 1) % focusQueue.length;
+  renderFocusTask();
+});
+
+$('#focusDoneBtn').addEventListener('click', () => {
+  const task = focusQueue[focusIndex];
+  if (!task) return;
+  toggleTask(task.id, $('#focusDoneBtn'));
+  focusQueue = getFocusCandidates();
+  if (focusQueue.length === 0) {
+    $('#focusTaskText').textContent = '🎉 ¡Todo listo por ahora!';
+    $('#focusTaskDate').textContent = '';
+    $('#focusTimerPicker').classList.add('hidden');
+    stopFocusTimer();
+    setTimeout(() => closeModal('#focusModal'), 1600);
+    return;
+  }
+  if (focusIndex >= focusQueue.length) focusIndex = 0;
+  $('#focusTimerPicker').classList.remove('hidden');
+  renderFocusTask();
+});
+
+$$('#focusTimerPicker .chip').forEach(chip => {
+  chip.addEventListener('click', () => startFocusTimer(parseInt(chip.dataset.mins, 10)));
+});
+
+function startFocusTimer(minutes) {
+  $('#focusTimerPicker').classList.add('hidden');
+  $('#focusTimerBox').classList.remove('hidden');
+  focusTimerEndAt = Date.now() + minutes * 60000;
+  updateFocusTimerDisplay();
+  focusTimerInterval = setInterval(updateFocusTimerDisplay, 1000);
+}
+
+function updateFocusTimerDisplay() {
+  const remainingMs = focusTimerEndAt - Date.now();
+  if (remainingMs <= 0) {
+    clearInterval(focusTimerInterval);
+    focusTimerInterval = null;
+    $('#focusTimerDisplay').textContent = '¡Listo! ⏰';
+    if (navigator.vibrate) navigator.vibrate([300, 100, 300, 100, 300]);
+    playChime();
+    setTimeout(() => {
+      $('#focusTimerBox').classList.add('hidden');
+      $('#focusTimerPicker').classList.remove('hidden');
+    }, 2500);
+    return;
+  }
+  const secs = Math.ceil(remainingMs / 1000);
+  $('#focusTimerDisplay').textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+}
+
+function stopFocusTimer() {
+  if (focusTimerInterval) clearInterval(focusTimerInterval);
+  focusTimerInterval = null;
+  $('#focusTimerBox').classList.add('hidden');
+  $('#focusTimerPicker').classList.remove('hidden');
+}
+
+$('#focusTimerCancel').addEventListener('click', stopFocusTimer);
+
 /* ========================= INICIO ========================= */
 // Se actualiza junto con CACHE_NAME en sw.js en cada release, para poder
 // confirmar de un vistazo si un dispositivo ya cargo la ultima version.
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 
 function renderGreeting() {
   const hour = new Date().getHours();

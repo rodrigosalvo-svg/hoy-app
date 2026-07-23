@@ -43,6 +43,8 @@
         <div class="progress-label" id="todayProgressLabel">Sin tareas para hoy</div>
       </div>
 
+      <button class="btn btn-primary btn-block focus-entry hidden" id="focusEntryBtn">🎯 Modo Enfoque</button>
+
       <div id="overdueBlock" class="overdue-block hidden">
         <div class="section-label section-label-warn">⚠ Atrasadas</div>
         <ul class="task-list" id="overdueList"></ul>
@@ -249,6 +251,32 @@
     <button class="btn btn-primary btn-block" id="exportBackupBtn">⬇️ Descargar respaldo</button>
     <button class="btn btn-secondary btn-block" id="importBackupBtn">⬆️ Restaurar desde un respaldo</button>
     <input type="file" id="importBackupInput" accept="application/json" class="hidden">
+  </div>
+</div>
+
+<!-- MODO ENFOQUE -->
+<div id="focusModal" class="modal-overlay focus-overlay hidden">
+  <div class="focus-sheet">
+    <button class="icon-btn focus-close" id="closeFocusModal">✕</button>
+    <div class="focus-label">Enfócate en</div>
+    <div class="focus-task-text" id="focusTaskText"></div>
+    <div class="focus-date" id="focusTaskDate"></div>
+
+    <div class="focus-timer-picker" id="focusTimerPicker">
+      <button class="chip" data-mins="5">⏱️ 5 min</button>
+      <button class="chip" data-mins="10">⏱️ 10 min</button>
+      <button class="chip" data-mins="15">⏱️ 15 min</button>
+    </div>
+
+    <div class="focus-timer-box hidden" id="focusTimerBox">
+      <div class="focus-timer-display" id="focusTimerDisplay">10:00</div>
+      <button class="btn btn-ghost" id="focusTimerCancel">Cancelar temporizador</button>
+    </div>
+
+    <div class="focus-actions">
+      <button class="btn btn-secondary" id="focusSkipBtn">➡️ Ver otra</button>
+      <button class="btn btn-primary" id="focusDoneBtn">✅ Hecho</button>
+    </div>
   </div>
 </div>
 

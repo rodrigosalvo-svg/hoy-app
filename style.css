@@ -323,3 +323,38 @@ ul { list-style: none; margin: 0; padding: 0; }
   font-size: 13px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,0.3); z-index: 60;
   border: 1px solid var(--border);
 }
+
+/* MODO ENFOQUE */
+.focus-entry { margin: 4px 4px 16px; }
+.focus-overlay .focus-sheet {
+  background: var(--bg); width: 100%; height: 100%; max-width: 640px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 40px 28px calc(40px + var(--safe-bottom)); position: relative; gap: 18px;
+  border-radius: 0;
+}
+.focus-close {
+  position: absolute; top: calc(20px + var(--safe-top)); right: 20px;
+}
+.focus-label {
+  color: var(--text-dim); font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; font-size: 13px;
+}
+.focus-task-text { font-size: 30px; font-weight: 800; text-align: center; line-height: 1.3; }
+.focus-date { color: var(--warn); font-weight: 700; font-size: 15px; }
+.focus-timer-picker { display: flex; gap: 10px; margin-top: 8px; }
+.focus-timer-box { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 8px; }
+.focus-timer-display {
+  font-size: 52px; font-weight: 800; font-variant-numeric: tabular-nums;
+  background: var(--accent-gradient); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.focus-actions { display: flex; gap: 12px; width: 100%; margin-top: 16px; }
+.focus-actions .btn { flex: 1; margin-top: 0; }
+
+/* RECOMPENSA AL COMPLETAR */
+.confetti-piece {
+  position: fixed; z-index: 999; font-size: 20px; pointer-events: none;
+  animation: confettiFly 0.8s ease-out forwards;
+}
+@keyframes confettiFly {
+  to { transform: translate(var(--dx), var(--dy)) scale(0.4); opacity: 0; }
+}
